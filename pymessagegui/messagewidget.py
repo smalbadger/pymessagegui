@@ -90,7 +90,8 @@ class PyMessageGuiWidget(QWidget):
             field = fw.field
             if field.value_is_valid(text):
                 color = "green"
-                field.value=text # Updates the underlying field
+                if field.is_writable:
+                    self.cur_message.__setattr__(fw.field.name, text)
             else:
                 color = "red"
                 all_good = False
@@ -100,7 +101,6 @@ class PyMessageGuiWidget(QWidget):
         
         for nw, fw in self.cur_field_mapping.values():
             if self.sender() is not fw:
-                print(fw.field.name, fw.field.value)
                 fw.setText(fw.field.render())
         
         # Update the staged message label
