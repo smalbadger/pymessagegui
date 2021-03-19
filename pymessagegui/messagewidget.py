@@ -4,6 +4,7 @@ Created on Mar 14, 2021
 @author: smalb
 '''
 import sys
+from copy import deepcopy
 from PySide6.QtWidgets import (
     QWidget, 
     QHBoxLayout, 
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QLabel,
     QLineEdit,
+    QLabel,
 )
 from PySide6.QtCore import Slot
 from pymessagelib import MessageBuilder, Nibbles, Bytes, Bits, Bit, Byte, Field
@@ -27,10 +29,14 @@ class PyMessageGuiWidget(QWidget):
         
         self.top_level_layout = QHBoxLayout(self)
         self.msg_btn_layout = QVBoxLayout()
+        self.main_area_layout = QVBoxLayout()
         self.field_layout = QFormLayout()
         self.top_level_layout.addLayout(self.msg_btn_layout)
         self.top_level_layout.addStretch()
-        self.top_level_layout.addLayout(self.field_layout)
+        self.top_level_layout.addLayout(self.main_area_layout)
+        self.main_area_layout.addLayout(self.field_layout)
+        self.msg_staging_label = QLabel()
+        self.main_area_layout.addWidget(self.msg_staging_label)
         self.top_level_layout.addStretch()
         
         self.builder = MessageBuilder(definitions)
@@ -46,19 +52,66 @@ class PyMessageGuiWidget(QWidget):
     @Slot()
     def show_fields(self):
         
-        # clear all fields
+        # Clear all fields
         while self.field_layout.rowCount():
             self.field_layout.removeRow(0)
             
-        # render new fields
-        self.cur_message = self.btn_classes[self.sender()]
+        # Construct a message object
+        self.cur_message_class = self.btn_classes[self.sender()]
+        kwargs = {}
+        for name, field in self.cur_message_class.format.items():
+            if field.is_writable:
+                kwargs[name] = 'b0'
+        self.cur_message = self.cur_message_class(**kwargs)
+        
         self.cur_field_mapping = {}
-        for name, field in self.cur_message.format.items():
-            name_widget = QLabel(name)
+        for name, field in self.cur_message.get_field_name_mapping().items():
+            name_widget = QLabel(f"{name} ({field._unit_length} {type(field).__name__})")
             edit_widget = QLineEdit()
+            edit_widget.textChanged.connect(self.on_field_value_changed)
+            edit_widget.field = field
+            edit_widget.setText(field.render())
+            
+            if not field.is_writable:
+                edit_widget.setEnabled(False)
+                
             self.cur_field_mapping[name] = (name_widget, edit_widget)
             self.field_layout.addRow(name_widget, edit_widget)
         
+    @Slot()
+    def on_field_value_changed(self):
+        new_text = self.sender().text()
+        valid = self.sender().field.value_is_valid(new_text)
+        
+        # Determine if there are any bad fields - update the good fields
+        all_good = True
+        for nw, fw in self.cur_field_mapping.values():
+            text = fw.text()
+            field = fw.field
+            if field.value_is_valid(text):
+                color = "green"
+                field.value=text # Updates the underlying field
+            else:
+                color = "red"
+                all_good = False
+                
+            all_colors = f"{color} {color} {color} {color}"
+            fw.setStyleSheet(f"QLineEdit{{ border-width: 1px; border-style: solid; border-color: {all_colors};}}");
+        
+        for nw, fw in self.cur_field_mapping.values():
+            if self.sender() is not fw:
+                print(fw.field.name, fw.field.value)
+                fw.setText(fw.field.render())
+        
+        # Update the staged message label
+        if all_good:
+            color = "green"
+            staged_msg = self.cur_message.render()
+        else:
+            color = "red"
+            staged_msg = "INVALID MESSAGE DATA"
+        self.msg_staging_label.setText(staged_msg)
+        self.msg_staging_label.setStyleSheet(f"QLabel {{color : {color}; }}");
         
         
 if __name__ == '__main__':
